@@ -4,14 +4,15 @@ import pandas as pd
 from ibapi.client import EClient
 from ibapi.wrapper import EWrapper
 import time, datetime
-from ibapi.client import Contract
+from ibapi.client import Contract, Order
 
 from lightweight_charts import Chart
 
 from threading import Thread
 
-init_symbol = "TSLA"
-INITAL_SYMBOL = "TSLA"
+
+INITIAL_SYMBOL = "TSLA"
+INITIAL_TIMEFRAME = '5 mins'
 
 default_host = '127.0.0.1'
 default_client_id = 1
@@ -28,7 +29,7 @@ data_queue = queue.Queue()
 class IBClient(EWrapper, EClient):
 
     def __init__(self, host, port, client_id):
-        EClient.__init__(self,self)
+        EClient.__init__(self, self)
 
         self.connect(host, port, client_id)
         thread = Thread(target=self.run)
@@ -39,6 +40,18 @@ class IBClient(EWrapper, EClient):
             print(msg)
         else:
             print('Error{}:{}'.format(code, msg))
+
+    def nextValidId(self, orderId:int):
+        super().nextValidId(orderId)
+        self.order_id = orderId
+        print((f'next avalible id is {self.order_id}'))
+
+    def orderStatus(self, order_id , status:str, filled:float,
+                    remaining:float, avgFillPrice:float, permId:int,
+                    parentId:int, lastFillPrice:float, clientId:int,
+                    whyHeld:str, mktCapPrice: float):
+        print(f'order status: {order_id} {status} {filled} {remaining} {avgFillPrice} {permId} {parentId} {lastFillPrice} '
+              f'{clientId} ')
 
     def historicalData(self, req_id, bar):
         print(bar)
@@ -86,6 +99,54 @@ def update_chart():
             # once we get the data back, we don't need a spinner anymore
             #chart.spinner(False)
 
+def on_timeframe_selection(chart):
+    print('selcted timeframe')
+    print(chart.topbar['symbol'].value, chart.topbar['timeframe'].value)
+    get_bar_data(chart.topbar['symbol'].value, chart.topbar['timeframe'].value)
+
+def on_search(chart, search_string):
+    get_bar_data(search_string, chart.topbar['timeframe'].value)
+    chart.topbar['symbol'].set(search_string)
+
+def take_screenshot(key):
+    img = chart.screenshot()
+    t = time.time()
+    with open(f"scrrenshot-{t}.png", 'wb') as f:
+        f.write(img)
+
+def place_order(key):
+
+    symbol = chart.topbar['symbol'].value.strip().upper()
+
+    contract = Contract()
+    contract.symbol = symbol
+    contract.secType = 'STK'
+    contract.currency = 'USD'
+    contract.exchange = 'SMART'
+
+    order = Order()
+    order.orderType = "MKT"
+    order.eTradeOnly = False
+    order.firmQuoteOnly = False  # Avoids similar issues
+    order.outsideRth = True
+    order.totalQuantity = 1
+
+    client.reqIds(-1)
+    time.sleep(1)
+
+    if key == 'o':
+        print('buy order')
+        order.action = 'BUY'
+
+    if key == 'p':
+        print('sell order')
+        order.action = 'SELL'
+
+    if client.order_id:
+        print("got order id, placing order")
+        client.placeOrder(client.order_id, contract, order)
+
+
 def get_bar_data(symbol, timeframe):
 
     print(f"getting bar data for {symbol} {timeframe}")
@@ -110,8 +171,19 @@ if __name__ == '__main__':
     time.sleep(1)
 
     chart = Chart(toolbox=True, width=1000, inner_width=1, inner_height=1)
+    chart.legend(True)
 
-    get_bar_data(INITAL_SYMBOL, '5 mins')
+
+    chart.hotkey('shift','o', place_order)
+    chart.hotkey('shift', 'p', place_order)
+
+
+    chart.topbar.textbox('symbol', INITIAL_SYMBOL)
+    chart.topbar.switcher('timeframe',('5 mins', '15 mins', '30 mins', '1 hour'),default=INITIAL_TIMEFRAME, func=on_timeframe_selection)
+
+    chart.events.search += on_search
+
+    get_bar_data(INITIAL_SYMBOL, INITIAL_TIMEFRAME)
 
     chart.show(block=True)
     time.sleep(1)
