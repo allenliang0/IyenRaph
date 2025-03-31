@@ -187,3 +187,5 @@ if __name__ == '__main__':
 
     chart.show(block=True)
     time.sleep(1)
+
+print('hi')
